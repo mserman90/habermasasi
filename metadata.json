@@ -1,0 +1,7 @@
+{
+  "name": "Son Dakika Radarı",
+  "description": "Son dakika haber sinyallerini ve YouTube canlı yayın eşleşmelerini gerçek zamanlı takip eden taktiksel radar konsolu.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
+
