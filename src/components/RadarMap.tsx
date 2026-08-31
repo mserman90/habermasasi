@@ -11,7 +11,9 @@ import {
   ShieldCheck,
   Compass,
   Layers,
-  ArrowRight
+  ArrowRight,
+  Sun,
+  Moon
 } from 'lucide-react';
 import { CountryAgendaOverview, DisGundemItem } from '../types';
 import { MONITORED_COUNTRIES } from '../data/countriesCatalog';
@@ -30,6 +32,18 @@ const isValidCoordinate = (val: any): val is number => {
 
 const ANKARA_COORDS: [number, number] = [39.9334, 32.8597];
 
+// CARTO / OpenStreetMap Tile Endpoints
+const CARTO_TILES = {
+  dark: {
+    url: 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',
+    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/attributions">CARTO</a>'
+  },
+  light: {
+    url: 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png',
+    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/attributions">CARTO</a>'
+  }
+};
+
 export const RadarMap: React.FC<RadarMapProps> = ({
   countries,
   selectedCountryCode,
@@ -38,9 +52,11 @@ export const RadarMap: React.FC<RadarMapProps> = ({
 }) => {
   const mapContainerRef = useRef<HTMLDivElement>(null);
   const mapInstanceRef = useRef<L.Map | null>(null);
+  const tileLayerRef = useRef<L.TileLayer | null>(null);
   const markersGroupRef = useRef<L.LayerGroup | null>(null);
   const linesGroupRef = useRef<L.LayerGroup | null>(null);
   
+  const [mapTheme, setMapTheme] = useState<'dark' | 'light'>('dark');
   const [activeRegionFilter, setActiveRegionFilter] = useState<string>('ALL');
   const [onlyMentioning, setOnlyMentioning] = useState<boolean>(false);
   const [mapCenterCoords, setMapCenterCoords] = useState<{ lat: number; lng: number; zoom: number }>({
@@ -70,12 +86,14 @@ export const RadarMap: React.FC<RadarMapProps> = ({
       zoomControl: false
     });
 
-    // Dark Matter Tactical Map Tiles
-    L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
-      attribution: '&copy; <a href="https://carto.com/">CARTO</a>',
+    // Initial Tile Layer (CARTO Dark)
+    const initialTile = L.tileLayer(CARTO_TILES.dark.url, {
+      attribution: CARTO_TILES.dark.attribution,
       subdomains: 'abcd',
       maxZoom: 19
     }).addTo(map);
+
+    tileLayerRef.current = initialTile;
 
     L.control.zoom({ position: 'bottomright' }).addTo(map);
 
@@ -123,10 +141,31 @@ export const RadarMap: React.FC<RadarMapProps> = ({
       resizeObserver.disconnect();
       map.remove();
       mapInstanceRef.current = null;
+      tileLayerRef.current = null;
       markersGroupRef.current = null;
       linesGroupRef.current = null;
     };
   }, []);
+
+  // Update Tile Layer on Theme Change (CARTO Dark <-> CARTO Voyager Light)
+  useEffect(() => {
+    const map = mapInstanceRef.current;
+    if (!map) return;
+
+    if (tileLayerRef.current) {
+      map.removeLayer(tileLayerRef.current);
+    }
+
+    const newTileConfig = CARTO_TILES[mapTheme];
+    const newTileLayer = L.tileLayer(newTileConfig.url, {
+      attribution: newTileConfig.attribution,
+      subdomains: 'abcd',
+      maxZoom: 19
+    }).addTo(map);
+
+    tileLayerRef.current = newTileLayer;
+    newTileLayer.bringToBack();
+  }, [mapTheme]);
 
   // Update Markers & Geopolitical Laser Rays to Ankara
   useEffect(() => {
@@ -311,6 +350,34 @@ export const RadarMap: React.FC<RadarMapProps> = ({
         </div>
 
         <div className="flex items-center gap-2">
+          {/* CARTO Basemap Theme Selector */}
+          <div className="flex items-center rounded-lg border border-slate-800 bg-slate-900 p-0.5">
+            <button
+              onClick={() => setMapTheme('dark')}
+              title="CARTO Karanlık Tema (Dark All)"
+              className={`flex items-center gap-1 px-2 py-1 rounded-md text-[11px] font-medium transition-colors ${
+                mapTheme === 'dark'
+                  ? 'bg-slate-800 text-rose-400 font-bold shadow-sm'
+                  : 'text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              <Moon className="h-3 w-3" />
+              <span>Karanlık</span>
+            </button>
+            <button
+              onClick={() => setMapTheme('light')}
+              title="CARTO Aydınlık Tema (Voyager)"
+              className={`flex items-center gap-1 px-2 py-1 rounded-md text-[11px] font-medium transition-colors ${
+                mapTheme === 'light'
+                  ? 'bg-slate-800 text-amber-300 font-bold shadow-sm'
+                  : 'text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              <Sun className="h-3 w-3" />
+              <span>Aydınlık</span>
+            </button>
+          </div>
+
           <button
             onClick={() => setOnlyMentioning(!onlyMentioning)}
             className={`px-2.5 py-1 rounded-lg text-xs font-semibold border transition-all ${

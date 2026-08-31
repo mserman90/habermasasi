@@ -84,7 +84,15 @@ export default function App() {
       ]);
 
       if (feedRes.status === 'fulfilled' && feedRes.value?.ok && Array.isArray(feedRes.value.articles)) {
-        setArticles(feedRes.value.articles);
+        const uniqueArticles: DisGundemItem[] = [];
+        const seenIds = new Set<string>();
+        for (const art of feedRes.value.articles) {
+          if (art && art.id && !seenIds.has(art.id)) {
+            seenIds.add(art.id);
+            uniqueArticles.push(art);
+          }
+        }
+        setArticles(uniqueArticles);
       }
 
       if (countriesRes.status === 'fulfilled' && countriesRes.value?.ok && Array.isArray(countriesRes.value.countries)) {

@@ -1,5 +1,6 @@
 import express from "express";
 import path from "path";
+import crypto from "crypto";
 import { createServer as createViteServer } from "vite";
 import { XMLParser } from "fast-xml-parser";
 import {
@@ -101,8 +102,14 @@ async function fetchRssFeed(url: string, sourceFallback: string, countryCode: st
 
       const verification = verifyNamedEntitiesInText(cleanTitle, description + " " + cleanTitle);
 
+      const uniqueHash = crypto
+        .createHash("sha256")
+        .update(`${countryCode}:${link || cleanTitle}:${cleanTitle}`)
+        .digest("hex")
+        .substring(0, 16);
+
       const parsedItem: DisGundemItem = {
-        id: 'live-' + countryCode + '-' + Buffer.from(cleanTitle).toString("base64").substring(0, 16),
+        id: `live-${countryCode.toLowerCase()}-${uniqueHash}`,
         countryCode: countryCode,
         countryName: countryObj?.name || countryCode,
         capital: countryObj?.capital || 'Bilinmeyen',
@@ -129,6 +136,14 @@ async function fetchRssFeed(url: string, sourceFallback: string, countryCode: st
   } catch (err) {
     return [];
   }
+}
+
+function normalizeTitleForDeduplication(str: string): string {
+  return String(str)
+    .toLowerCase()
+    .normalize("NFC")
+    .replace(/[^\p{L}\p{N}]/gu, "")
+    .trim();
 }
 
 // In-memory cache of live aggregated articles
@@ -167,21 +182,35 @@ async function refreshLiveFeedsIfNeeded() {
       }
     });
 
-    // Merge live with seed items, deduplicating by title
-    const seen = new Set<string>();
+    // Merge live with seed items, deduplicating by title, ID and URL
+    const seenTitles = new Set<string>();
+    const seenIds = new Set<string>();
+    const seenUrls = new Set<string>();
     const combined: DisGundemItem[] = [];
 
     // Prioritize high-quality curated seed items
     for (const item of SEED_DIS_GUNDEM_ARTICLES) {
-      const key = item.originalTitle.toLowerCase().replace(/[^a-z0-9]/g, "");
-      seen.add(key);
+      const titleKey = normalizeTitleForDeduplication(item.originalTitle);
+      if (titleKey) seenTitles.add(titleKey);
+      seenIds.add(item.id);
+      if (item.sourceUrl && item.sourceUrl !== '#') {
+        seenUrls.add(item.sourceUrl);
+      }
       combined.push(item);
     }
 
     for (const item of liveItems) {
-      const key = item.originalTitle.toLowerCase().replace(/[^a-z0-9]/g, "");
-      if (!seen.has(key) && key.length > 5) {
-        seen.add(key);
+      const titleKey = normalizeTitleForDeduplication(item.originalTitle);
+      const isDuplicateTitle = Boolean(titleKey && titleKey.length >= 6 && seenTitles.has(titleKey));
+      const isDuplicateId = seenIds.has(item.id);
+      const isDuplicateUrl = Boolean(item.sourceUrl && item.sourceUrl !== '#' && seenUrls.has(item.sourceUrl));
+
+      if (!isDuplicateTitle && !isDuplicateId && !isDuplicateUrl) {
+        if (titleKey) seenTitles.add(titleKey);
+        seenIds.add(item.id);
+        if (item.sourceUrl && item.sourceUrl !== '#') {
+          seenUrls.add(item.sourceUrl);
+        }
         combined.push(item);
       }
     }
