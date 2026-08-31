@@ -43,7 +43,7 @@ export const MethodologyModal: React.FC<MethodologyModalProps> = ({ isOpen, onCl
               EDİTORYAL MİMARİ VE VERİ FELSEFESİ
             </span>
             <h2 className="text-xl sm:text-2xl font-bold text-white">
-              Dış Gündem Nasıl Çalışır?
+              HABER MASASI Nasıl Çalışır?
             </h2>
           </div>
         </div>
