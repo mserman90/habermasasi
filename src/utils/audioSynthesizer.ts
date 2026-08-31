@@ -98,6 +98,14 @@ class RadarAudioEngine {
     }
   }
 
+  public mute() {
+    this.isMuted = true;
+  }
+
+  public unmute() {
+    this.isMuted = false;
+  }
+
   public toggleMute(): boolean {
     this.isMuted = !this.isMuted;
     return this.isMuted;

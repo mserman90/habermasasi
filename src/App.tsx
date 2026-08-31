@@ -1,358 +1,236 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { 
-  NewsCluster, 
-  LiveStreamItem, 
-  TerminalLog, 
-  RadarStatus, 
-  RadarApiResponse 
+  DisGundemItem, 
+  CountryAgendaOverview, 
+  StoryEvolutionTopic, 
+  GeopoliticalStats, 
+  MainNavTab 
 } from './types';
 import { 
-  extractKeywords, 
-  makeTopicSignature, 
-  clusterNewsItems, 
-  formatTime, 
-  normalizeText, 
-  tokenize 
-} from './utils/textProcessing';
-import { radarAudio } from './utils/audioSynthesizer';
+  SEED_DIS_GUNDEM_ARTICLES, 
+  SEED_COUNTRY_AGENDAS, 
+  SEED_STORY_EVOLUTIONS, 
+  INITIAL_GEOPOLITICAL_STATS,
+  MONITORED_COUNTRIES
+} from './data/countriesCatalog';
 import { Header } from './components/Header';
-import { NewsPanel } from './components/NewsPanel';
-import { RadarTerminalPanel } from './components/RadarTerminalPanel';
-import { LiveStreamsPanel } from './components/LiveStreamsPanel';
-import { NewsDetailModal } from './components/NewsDetailModal';
-import { StreamPlayerModal } from './components/StreamPlayerModal';
+import { TurkiyePerspectiveView } from './components/TurkiyePerspectiveView';
+import { CountryAgendasView } from './components/CountryAgendasView';
+import { RadarMap } from './components/RadarMap';
+import { StoryEvolutionView } from './components/StoryEvolutionView';
+import { ArchiveSearchView } from './components/ArchiveSearchView';
+import { MethodologyModal } from './components/MethodologyModal';
+import { ArticleDetailModal } from './components/ArticleDetailModal';
+import { MobileBottomNav } from './components/MobileBottomNav';
+import { radarAudio } from './utils/audioSynthesizer';
 
 export default function App() {
-  const [status, setStatus] = useState<RadarStatus>('idle');
-  const [statusText, setStatusText] = useState('Sistem Beklemede');
-  const [isScanning, setIsScanning] = useState(false);
-  const [isMuted, setIsMuted] = useState(radarAudio.isMuted);
-  const [autoScanInterval, setAutoScanInterval] = useState<number>(0);
-  const [lastScanTime, setLastScanTime] = useState<string | null>(null);
+  const [activeTab, setActiveTab] = useState<MainNavTab>('turkiye');
+  const [articles, setArticles] = useState<DisGundemItem[]>(SEED_DIS_GUNDEM_ARTICLES);
+  const [countries, setCountries] = useState<CountryAgendaOverview[]>([]);
+  const [stories, setStories] = useState<StoryEvolutionTopic[]>(SEED_STORY_EVOLUTIONS);
+  const [stats, setStats] = useState<GeopoliticalStats | null>(INITIAL_GEOPOLITICAL_STATS);
+  
+  const [isLoading, setIsLoading] = useState<boolean>(false);
+  const [soundEnabled, setSoundEnabled] = useState<boolean>(true);
+  const [selectedCountryCode, setSelectedCountryCode] = useState<string | null>('GR');
+  const [selectedStoryId, setSelectedStoryId] = useState<string | null>(null);
+  
+  const [selectedArticleModal, setSelectedArticleModal] = useState<DisGundemItem | null>(null);
+  const [isMethodologyOpen, setIsMethodologyOpen] = useState<boolean>(false);
 
-  const [clusters, setClusters] = useState<NewsCluster[]>([]);
-  const [streams, setStreams] = useState<LiveStreamItem[]>([]);
-  const [logs, setLogs] = useState<TerminalLog[]>([
-    {
-      id: 'log-0',
-      timestamp: formatTime(),
-      message: 'SDR v3.0 başlatıldı.',
-      type: 'info'
-    },
-    {
-      id: 'log-1',
-      timestamp: formatTime(),
-      message: 'Backend API bağlantısı hazır.',
-      type: 'info'
-    },
-    {
-      id: 'log-2',
-      timestamp: formatTime(),
-      message: 'Google News RSS sinyal hattı etkin.',
-      type: 'info'
-    },
-    {
-      id: 'log-3',
-      timestamp: formatTime(),
-      message: 'YouTube Live API hattı etkin.',
-      type: 'info'
-    },
-    {
-      id: 'log-4',
-      timestamp: formatTime(),
-      message: 'Hazır. Emir bekleniyor…',
-      type: 'success'
-    }
-  ]);
+  // Initialize initial countries agenda dataset
+  useEffect(() => {
+    const formattedCountries: CountryAgendaOverview[] = MONITORED_COUNTRIES.map(c => {
+      const existingSeed = SEED_COUNTRY_AGENDAS.find(a => a.countryCode === c.code);
+      const turkeyMatches = SEED_DIS_GUNDEM_ARTICLES.filter(art => art.countryCode === c.code);
 
-  const [selectedCluster, setSelectedCluster] = useState<NewsCluster | null>(null);
-  const [selectedStream, setSelectedStream] = useState<LiveStreamItem | null>(null);
+      return {
+        countryCode: c.code,
+        countryName: c.name,
+        nameNative: c.nameNative,
+        flag: c.flag,
+        capital: c.capital,
+        capitalCoords: c.capitalCoords,
+        region: c.region,
+        language: c.language,
+        sourcesCount: c.sources.length,
+        sources: c.sources,
+        localDomesticHeadlines: existingSeed?.localDomesticHeadlines || [
+          {
+            titleNative: `${c.nameNative} Meclis Gündemi ve Sosyal Düzenlemeler`,
+            titleTurkish: `${c.name} Parlamentosu yıllık bütçe ve kamu yatırımlarını oyluyor`,
+            source: c.sources[0]?.name || 'Ana Akım Medya',
+            category: 'İç Siyaset'
+          }
+        ],
+        turkeyMentions: turkeyMatches,
+        hasDirectTurkeyMention: turkeyMatches.length > 0
+      };
+    });
 
-  // Persistent references for topic cache and processed guids
-  const processedGuidsRef = useRef<Set<string>>(new Set());
-  const topicCacheRef = useRef<Map<string, number>>(new Map());
-  const foundStreamsMapRef = useRef<Map<string, LiveStreamItem>>(new Map());
-  const scanControllerRef = useRef<AbortController | null>(null);
-  const autoScanTimerRef = useRef<any>(null);
-
-  const addLog = useCallback((message: string, type: TerminalLog['type'] = 'info') => {
-    setLogs((prev) => [
-      ...prev,
-      {
-        id: `log-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
-        timestamp: formatTime(),
-        message,
-        type
-      }
-    ]);
+    setCountries(formattedCountries);
   }, []);
 
-  const checkAndCacheTopic = useCallback((signature: string): boolean => {
-    const now = Date.now();
-    const ttl = 20 * 60 * 1000; // 20 minutes
-
-    // Clean expired items
-    for (const [key, timestamp] of topicCacheRef.current.entries()) {
-      if (now - timestamp > ttl) {
-        topicCacheRef.current.delete(key);
-      }
-    }
-
-    if (!signature) return false;
-    if (topicCacheRef.current.has(signature)) return true;
-
-    topicCacheRef.current.set(signature, now);
-    return false;
-  }, []);
-
-  const executeRadarScan = useCallback(async () => {
-    if (isScanning) return;
-
-    setIsScanning(true);
-    setStatus('scanning');
-    setStatusText('Derin Tarama Aktif');
-    radarAudio.playScanBeep();
-
-    addLog('=== RADAR DÖNGÜSÜ BAŞLADI ===', 'radar');
-    addLog('Backend üzerinden haber ve canlı yayın sinyalleri isteniyor…', 'info');
-
-    const controller = new AbortController();
-    scanControllerRef.current = controller;
-    const timeout = setTimeout(() => controller.abort(), 28000);
-
+  // Fetch Live Feeds from Backend
+  const loadLiveIntelligence = useCallback(async () => {
+    setIsLoading(true);
     try {
-      const response = await fetch('/api/radar', {
-        method: 'GET',
-        headers: { Accept: 'application/json' },
-        signal: controller.signal
-      });
+      const [feedRes, countriesRes, statsRes, storiesRes] = await Promise.allSettled([
+        fetch('/api/disgundem/feed').then(r => r.json()),
+        fetch('/api/disgundem/countries').then(r => r.json()),
+        fetch('/api/disgundem/stats').then(r => r.json()),
+        fetch('/api/disgundem/stories').then(r => r.json())
+      ]);
 
-      clearTimeout(timeout);
-
-      const data: RadarApiResponse = await response.json().catch(() => ({
-        ok: false,
-        timestamp: Date.now(),
-        news: [],
-        liveStreams: []
-      }));
-
-      if (!response.ok || !data.ok) {
-        throw new Error(data.error || `Radar API HTTP hatası: ${response.status}`);
+      if (feedRes.status === 'fulfilled' && feedRes.value?.ok && Array.isArray(feedRes.value.articles)) {
+        setArticles(feedRes.value.articles);
       }
 
-      const incomingNews = Array.isArray(data.news) ? data.news : [];
-      const newClusters = clusterNewsItems(incomingNews, processedGuidsRef.current);
-
-      addLog(
-        `${incomingNews.length} ham haber kaydı alındı; ${newClusters.length} tekil konu oluşturuldu.`,
-        'success'
-      );
-
-      if (newClusters.length === 0) {
-        addLog('Yeni ve tekil haber sinyali tespit edilemedi.', 'warn');
+      if (countriesRes.status === 'fulfilled' && countriesRes.value?.ok && Array.isArray(countriesRes.value.countries)) {
+        setCountries(countriesRes.value.countries);
       }
 
-      const validClustersToAdd: NewsCluster[] = [];
-      let newStreamFound = false;
-
-      for (const cluster of newClusters) {
-        const text = `${cluster.main.cleanTitle || cluster.main.title} ${cluster.main.description || ''}`;
-        const keywords = extractKeywords(text);
-
-        if (!keywords) {
-          addLog(`Anahtar kelime çıkarılamadı: ${cluster.main.cleanTitle}`, 'warn');
-          continue;
-        }
-
-        const signature = makeTopicSignature(keywords);
-        if (checkAndCacheTopic(signature)) {
-          addLog(`20 dk. konu cache kaydı nedeniyle atlandı: [${signature}]`, 'warn');
-          continue;
-        }
-
-        addLog(`Konu işlendi: [${keywords}]`, 'success');
-        validClustersToAdd.push({
-          ...cluster,
-          keywords,
-          signature
-        });
-
-        // Match against live streams
-        const streamMatches = Array.isArray(data.liveStreams)
-          ? data.liveStreams.filter((stream) => {
-              const haystack = normalizeText(`${stream.title || ''} ${stream.channelName || ''}`);
-              const tokens = tokenize(keywords);
-              return tokens.some((keyword) => haystack.includes(keyword)) || stream.is24x7;
-            })
-          : [];
-
-        if (streamMatches.length > 0) {
-          addLog(`${streamMatches.length} canlı yayın eşleşmesi bulundu.`, 'success');
-          for (const s of streamMatches) {
-            if (!foundStreamsMapRef.current.has(s.videoId)) {
-              foundStreamsMapRef.current.set(s.videoId, {
-                ...s,
-                matchedKeywords: tokenize(keywords)
-              });
-              newStreamFound = true;
-            }
-          }
-        } else {
-          addLog(`YouTube canlı eşleşmesi bulunamadı: ${keywords}`, 'warn');
-        }
+      if (statsRes.status === 'fulfilled' && statsRes.value?.ok && statsRes.value.stats) {
+        setStats(statsRes.value.stats);
       }
 
-      // Also ensure standard high-impact live channels are in stream list
-      if (Array.isArray(data.liveStreams)) {
-        for (const s of data.liveStreams) {
-          if (!foundStreamsMapRef.current.has(s.videoId)) {
-            foundStreamsMapRef.current.set(s.videoId, s);
-          }
-        }
+      if (storiesRes.status === 'fulfilled' && storiesRes.value?.ok && Array.isArray(storiesRes.value.stories)) {
+        setStories(storiesRes.value.stories);
       }
 
-      // Update state
-      if (validClustersToAdd.length > 0) {
-        setClusters((prev) => [...validClustersToAdd, ...prev]);
-      }
-
-      setStreams(Array.from(foundStreamsMapRef.current.values()));
-
-      if (data.warnings && data.warnings.length > 0) {
-        for (const w of data.warnings) {
-          addLog(w, 'warn');
-        }
-      }
-
-      if (newStreamFound) {
-        radarAudio.playAlertBeep();
-      } else {
+      if (soundEnabled) {
         radarAudio.playRadarPing();
       }
-
-      setStatus('success');
-      setStatusText('Tarama Tamamlandı');
-      setLastScanTime(formatTime());
-    } catch (error: any) {
-      if (error.name === 'AbortError') {
-        addLog('İstek zaman aşımına uğradı. Backend yanıt vermedi.', 'error');
-      } else {
-        addLog(`Kritik sistem hatası: ${error.message || error}`, 'error');
-      }
-      setStatus('error');
-      setStatusText('Tarama Hatası');
+    } catch (err) {
+      console.error('Failed to load live data:', err);
     } finally {
-      setIsScanning(false);
-      scanControllerRef.current = null;
-      setTimeout(() => {
-        setStatus('idle');
-        setStatusText('Sistem Beklemede');
-      }, 3000);
-      addLog('=== RADAR DÖNGÜSÜ TAMAMLANDI ===', 'info');
+      setIsLoading(false);
     }
-  }, [isScanning, addLog, checkAndCacheTopic]);
+  }, [soundEnabled]);
 
-  // Auto scan timer effect
+  // Initial fetch on load
   useEffect(() => {
-    if (autoScanTimerRef.current) {
-      clearInterval(autoScanTimerRef.current);
-      autoScanTimerRef.current = null;
+    loadLiveIntelligence();
+    // Refresh feed every 5 minutes automatically
+    const interval = setInterval(loadLiveIntelligence, 5 * 60 * 1000);
+    return () => clearInterval(interval);
+  }, [loadLiveIntelligence]);
+
+  const handleToggleSound = () => {
+    const next = !soundEnabled;
+    setSoundEnabled(next);
+    if (next) {
+      radarAudio.unmute();
+      radarAudio.playRadarPing();
+    } else {
+      radarAudio.mute();
     }
-
-    if (autoScanInterval > 0) {
-      addLog(`Otomatik radar döngüsü ${autoScanInterval} saniye olarak ayarlandı.`, 'info');
-      autoScanTimerRef.current = setInterval(() => {
-        executeRadarScan();
-      }, autoScanInterval * 1000);
-    }
-
-    return () => {
-      if (autoScanTimerRef.current) {
-        clearInterval(autoScanTimerRef.current);
-      }
-    };
-  }, [autoScanInterval, executeRadarScan, addLog]);
-
-  // Initial scan on first mount
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      addLog('Sistem çevrimiçi. Otomatik ilk radar başlatılıyor…', 'success');
-      executeRadarScan();
-    }, 600);
-
-    return () => clearTimeout(timer);
-  }, []);
-
-  const handleToggleMute = () => {
-    const newMuted = radarAudio.toggleMute();
-    setIsMuted(newMuted);
-    addLog(newMuted ? 'Sesli uyarılar susturuldu.' : 'Sesli uyarılar etkinleştirildi.', 'info');
   };
 
-  const handleClearLogs = () => {
-    setLogs([
-      {
-        id: `log-${Date.now()}`,
-        timestamp: formatTime(),
-        message: 'Log tamponu temizlendi.',
-        type: 'info'
-      }
-    ]);
+  const handleSelectCountryForMap = (countryCode: string) => {
+    setSelectedCountryCode(countryCode);
+    setActiveTab('harita');
+    if (soundEnabled) {
+      radarAudio.playRadarPing();
+    }
+  };
+
+  const handleSelectStory = (storyId: string) => {
+    setSelectedStoryId(storyId);
+    setActiveTab('seyir');
+    if (soundEnabled) {
+      radarAudio.playRadarPing();
+    }
   };
 
   return (
-    <div className="relative flex h-screen w-screen flex-col overflow-hidden bg-[#0a0f0d] text-[#00ff41] font-mono select-none">
-      {/* CRT Scanline Overlay */}
-      <div className="crt-overlay" />
-
-      {/* Main Tactical Header */}
+    <div className="relative flex h-screen w-screen flex-col overflow-hidden bg-[#0b0f17] text-slate-100 font-sans">
+      {/* Top Main Navigation Header */}
       <Header
-        status={status}
-        statusText={statusText}
-        isScanning={isScanning}
-        isMuted={isMuted}
-        autoScanInterval={autoScanInterval}
-        lastScanTime={lastScanTime}
-        newsCount={clusters.length}
-        streamsCount={streams.length}
-        onScanClick={executeRadarScan}
-        onToggleMute={handleToggleMute}
-        onAutoScanChange={setAutoScanInterval}
+        activeTab={activeTab}
+        onTabChange={setActiveTab}
+        stats={stats}
+        isLoading={isLoading}
+        onRefresh={loadLiveIntelligence}
+        soundEnabled={soundEnabled}
+        onToggleSound={handleToggleSound}
+        onOpenMethodology={() => setIsMethodologyOpen(true)}
       />
 
-      {/* 3-Column Radar Workspace */}
-      <main className="relative z-10 flex flex-grow flex-col overflow-hidden md:flex-row">
-        {/* Column 1: Haber Sinyalleri (Google News & RSS) */}
-        <NewsPanel
-          clusters={clusters}
-          onSelectCluster={(cluster) => setSelectedCluster(cluster)}
-        />
+      {/* Primary Intelligence Workspace Views */}
+      <main className="relative flex-1 flex flex-col overflow-hidden">
+        {/* 1. Türkiye'ye Bakış Tab */}
+        {activeTab === 'turkiye' && (
+          <TurkiyePerspectiveView
+            articles={articles}
+            stats={stats}
+            onSelectCountryForMap={handleSelectCountryForMap}
+            onSelectStory={handleSelectStory}
+            onOpenArticleModal={(art) => setSelectedArticleModal(art)}
+          />
+        )}
 
-        {/* Column 2: Sistem Logları & Doppler Radar HUD */}
-        <RadarTerminalPanel
-          logs={logs}
-          status={status}
-          newsCount={clusters.length}
-          streamsCount={streams.length}
-          onClearLogs={handleClearLogs}
-        />
+        {/* 2. Ülke Gündemleri Tab (Dual Output) */}
+        {activeTab === 'ulkeler' && (
+          <CountryAgendasView
+            countries={countries}
+            onSelectCountryForMap={handleSelectCountryForMap}
+            onOpenArticleModal={(art) => setSelectedArticleModal(art)}
+          />
+        )}
 
-        {/* Column 3: Canlı Yayın Eşleşmeleri (YouTube Live) */}
-        <LiveStreamsPanel
-          streams={streams}
-          onSelectStream={(stream) => setSelectedStream(stream)}
-        />
+        {/* 3. Jeopolitik Radar Haritası */}
+        {activeTab === 'harita' && (
+          <div className="flex-1 h-full w-full overflow-hidden">
+            <RadarMap
+              countries={countries}
+              selectedCountryCode={selectedCountryCode}
+              onSelectCountry={(code) => setSelectedCountryCode(code)}
+              onOpenArticleModal={(art) => setSelectedArticleModal(art)}
+            />
+          </div>
+        )}
+
+        {/* 4. Seyir & Hikaye Takibi */}
+        {activeTab === 'seyir' && (
+          <StoryEvolutionView
+            stories={stories}
+            selectedStoryId={selectedStoryId}
+            onSelectCountryForMap={handleSelectCountryForMap}
+          />
+        )}
+
+        {/* 5. Arşiv & Arama Motoru */}
+        {activeTab === 'arama' && (
+          <ArchiveSearchView
+            allArticles={articles}
+            onOpenArticleModal={(art) => setSelectedArticleModal(art)}
+            onSelectCountryForMap={handleSelectCountryForMap}
+          />
+        )}
       </main>
 
-      {/* Modals */}
-      <NewsDetailModal
-        cluster={selectedCluster}
-        onClose={() => setSelectedCluster(null)}
+      {/* Mobile Bottom Navigation (lg:hidden) */}
+      <MobileBottomNav
+        activeTab={activeTab}
+        turkiyeCount={articles.length}
+        countriesCount={countries.length}
+        onTabChange={setActiveTab}
       />
 
-      <StreamPlayerModal
-        stream={selectedStream}
-        onClose={() => setSelectedStream(null)}
+      {/* Editorial Methodology Modal */}
+      <MethodologyModal
+        isOpen={isMethodologyOpen}
+        onClose={() => setIsMethodologyOpen(false)}
+      />
+
+      {/* Article Deep Analysis Modal */}
+      <ArticleDetailModal
+        article={selectedArticleModal}
+        onClose={() => setSelectedArticleModal(null)}
+        onSelectCountryForMap={handleSelectCountryForMap}
+        onSelectStory={handleSelectStory}
       />
     </div>
   );

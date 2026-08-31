@@ -1,6 +1,6 @@
 {
   "name": "Son Dakika Radarı",
-  "description": "Son dakika haber sinyallerini ve YouTube canlı yayın eşleşmelerini gerçek zamanlı takip eden taktiksel radar konsolu.",
+  "description": "50 ülkenin ana akım medyasını 600'den fazla yerel kaynak üzerinden kaynak dilinde takip eden, Türkiye'ye bakış ve yerel gündemleri analiz eden dış politika istihbarat platformu.",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }
