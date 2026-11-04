@@ -32,15 +32,17 @@ const isValidCoordinate = (val: any): val is number => {
 
 const ANKARA_COORDS: [number, number] = [39.9334, 32.8597];
 
-// CARTO / OpenStreetMap Tile Endpoints
-const CARTO_TILES = {
+// Free & Keyless Basemap Endpoints (No API Key Required)
+const BASEMAP_CONFIGS = {
   dark: {
-    url: 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',
-    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/attributions">CARTO</a>'
+    base: 'https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}',
+    reference: 'https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Reference/MapServer/tile/{z}/{y}/{x}',
+    attribution: 'Tiles &copy; Esri &mdash; Esri, DeLorme, NAVTEQ'
   },
   light: {
-    url: 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png',
-    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/attributions">CARTO</a>'
+    base: 'https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Light_Gray_Base/MapServer/tile/{z}/{y}/{x}',
+    reference: 'https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Light_Gray_Reference/MapServer/tile/{z}/{y}/{x}',
+    attribution: 'Tiles &copy; Esri &mdash; Esri, DeLorme, NAVTEQ'
   }
 };
 
@@ -52,7 +54,7 @@ export const RadarMap: React.FC<RadarMapProps> = ({
 }) => {
   const mapContainerRef = useRef<HTMLDivElement>(null);
   const mapInstanceRef = useRef<L.Map | null>(null);
-  const tileLayerRef = useRef<L.TileLayer | null>(null);
+  const tileGroupRef = useRef<L.LayerGroup | null>(null);
   const markersGroupRef = useRef<L.LayerGroup | null>(null);
   const linesGroupRef = useRef<L.LayerGroup | null>(null);
   
@@ -74,6 +76,28 @@ export const RadarMap: React.FC<RadarMapProps> = ({
     'Kafkaslar & Orta Asya'
   ];
 
+  // Helper to load basemap layers without requiring any API key
+  const applyBasemapLayers = (theme: 'dark' | 'light') => {
+    const tileGroup = tileGroupRef.current;
+    if (!tileGroup) return;
+
+    tileGroup.clearLayers();
+    const config = BASEMAP_CONFIGS[theme];
+
+    const baseLayer = L.tileLayer(config.base, {
+      attribution: config.attribution,
+      maxZoom: 16
+    });
+
+    const refLayer = L.tileLayer(config.reference, {
+      maxZoom: 16
+    });
+
+    tileGroup.addLayer(baseLayer);
+    tileGroup.addLayer(refLayer);
+    baseLayer.bringToBack();
+  };
+
   // Initialize Map
   useEffect(() => {
     if (!mapContainerRef.current || mapInstanceRef.current) return;
@@ -86,14 +110,12 @@ export const RadarMap: React.FC<RadarMapProps> = ({
       zoomControl: false
     });
 
-    // Initial Tile Layer (CARTO Dark)
-    const initialTile = L.tileLayer(CARTO_TILES.dark.url, {
-      attribution: CARTO_TILES.dark.attribution,
-      subdomains: 'abcd',
-      maxZoom: 19
-    }).addTo(map);
+    // Basemap Layer Group
+    const tileGroup = L.layerGroup().addTo(map);
+    tileGroupRef.current = tileGroup;
 
-    tileLayerRef.current = initialTile;
+    // Initial Free Basemap (Dark Canvas)
+    applyBasemapLayers('dark');
 
     L.control.zoom({ position: 'bottomright' }).addTo(map);
 
@@ -141,30 +163,17 @@ export const RadarMap: React.FC<RadarMapProps> = ({
       resizeObserver.disconnect();
       map.remove();
       mapInstanceRef.current = null;
-      tileLayerRef.current = null;
+      tileGroupRef.current = null;
       markersGroupRef.current = null;
       linesGroupRef.current = null;
     };
   }, []);
 
-  // Update Tile Layer on Theme Change (CARTO Dark <-> CARTO Voyager Light)
+  // Update Tile Layer on Theme Change (Free Dark <-> Light)
   useEffect(() => {
-    const map = mapInstanceRef.current;
-    if (!map) return;
-
-    if (tileLayerRef.current) {
-      map.removeLayer(tileLayerRef.current);
+    if (mapInstanceRef.current && tileGroupRef.current) {
+      applyBasemapLayers(mapTheme);
     }
-
-    const newTileConfig = CARTO_TILES[mapTheme];
-    const newTileLayer = L.tileLayer(newTileConfig.url, {
-      attribution: newTileConfig.attribution,
-      subdomains: 'abcd',
-      maxZoom: 19
-    }).addTo(map);
-
-    tileLayerRef.current = newTileLayer;
-    newTileLayer.bringToBack();
   }, [mapTheme]);
 
   // Update Markers & Geopolitical Laser Rays to Ankara
@@ -350,11 +359,11 @@ export const RadarMap: React.FC<RadarMapProps> = ({
         </div>
 
         <div className="flex items-center gap-2">
-          {/* CARTO Basemap Theme Selector */}
+          {/* Basemap Theme Selector */}
           <div className="flex items-center rounded-lg border border-slate-800 bg-slate-900 p-0.5">
             <button
               onClick={() => setMapTheme('dark')}
-              title="CARTO Karanlık Tema (Dark All)"
+              title="Karanlık Tema (Ücretsiz & Keyless Esri Dark Canvas)"
               className={`flex items-center gap-1 px-2 py-1 rounded-md text-[11px] font-medium transition-colors ${
                 mapTheme === 'dark'
                   ? 'bg-slate-800 text-rose-400 font-bold shadow-sm'
@@ -366,7 +375,7 @@ export const RadarMap: React.FC<RadarMapProps> = ({
             </button>
             <button
               onClick={() => setMapTheme('light')}
-              title="CARTO Aydınlık Tema (Voyager)"
+              title="Aydınlık Tema (Ücretsiz & Keyless Esri Light Canvas)"
               className={`flex items-center gap-1 px-2 py-1 rounded-md text-[11px] font-medium transition-colors ${
                 mapTheme === 'light'
                   ? 'bg-slate-800 text-amber-300 font-bold shadow-sm'
