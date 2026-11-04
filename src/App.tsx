@@ -72,15 +72,15 @@ export default function App() {
     setCountries(formattedCountries);
   }, []);
 
-  // Fetch Live Feeds from Backend
+  // Fetch Live Feeds from Backend (safely fallback to seed data on static host)
   const loadLiveIntelligence = useCallback(async () => {
     setIsLoading(true);
     try {
       const [feedRes, countriesRes, statsRes, storiesRes] = await Promise.allSettled([
-        fetch('/api/disgundem/feed').then(r => r.json()),
-        fetch('/api/disgundem/countries').then(r => r.json()),
-        fetch('/api/disgundem/stats').then(r => r.json()),
-        fetch('/api/disgundem/stories').then(r => r.json())
+        fetch('/api/disgundem/feed').then(r => (r.ok ? r.json() : null)),
+        fetch('/api/disgundem/countries').then(r => (r.ok ? r.json() : null)),
+        fetch('/api/disgundem/stats').then(r => (r.ok ? r.json() : null)),
+        fetch('/api/disgundem/stories').then(r => (r.ok ? r.json() : null))
       ]);
 
       if (feedRes.status === 'fulfilled' && feedRes.value?.ok && Array.isArray(feedRes.value.articles)) {
