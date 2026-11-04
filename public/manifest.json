@@ -1,0 +1,19 @@
+{
+  "name": "HABER MASASI • Jeopolitik Basın İstihbarat Platformu",
+  "short_name": "Haber Masası",
+  "description": "50 ülkenin ana akım medyasında Türkiye gündemi ve komşularımızın yerel manşetlerini takip eden jeopolitik platform.",
+  "start_url": "./",
+  "display": "standalone",
+  "background_color": "#0b0f17",
+  "theme_color": "#0b0f17",
+  "orientation": "any",
+  "lang": "tr",
+  "icons": [
+    {
+      "src": "icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

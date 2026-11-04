@@ -1,0 +1,6 @@
+# Google and Search Engine Crawlers
+User-agent: *
+Allow: /
+
+# Sitemap Location
+Sitemap: https://mserman90.github.io/habermasasi/sitemap.xml
